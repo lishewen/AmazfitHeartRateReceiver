@@ -185,7 +185,6 @@ namespace AmazfitHeartRateMonitor
                 if (hrCharResult.Status != GattCommunicationStatus.Success ||
                     hrCharResult.Characteristics.Count == 0)
                 {
-                    Dispatcher.Invoke(() => UpdateStatus("未找到心率特征值"));
                     return;
                 }
 
@@ -360,7 +359,7 @@ namespace AmazfitHeartRateMonitor
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_watcher.Status == BluetoothLEAdvertisementWatcherStatus.Started)
+            if (_watcher?.Status == BluetoothLEAdvertisementWatcherStatus.Started)
             {
                 _watcher.Stop();
                 StartButton.Content = "开始扫描";
@@ -369,7 +368,7 @@ namespace AmazfitHeartRateMonitor
             }
             else
             {
-                _watcher.Start();
+                _watcher?.Start();
                 StartButton.Content = "停止扫描";
                 UpdateStatus("正在扫描设备...");
                 FooterText.Text = "正在搜索Amazfit Balance设备...";
