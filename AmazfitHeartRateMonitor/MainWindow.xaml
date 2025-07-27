@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:AmazfitHeartRateMonitor"
         xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
         mc:Ignorable="d"
-        Title="Amazfit Balance 心率监控" Height="600" Width="900" 
+        Title="Amazfit Balance 心率监控" Height="650" Width="900" 
         WindowStartupLocation="CenterScreen"
         Background="#FF0F172A">
     <Window.Resources>
@@ -96,6 +96,9 @@
                     <Button x:Name="ClearButton" Content="清除数据" 
                             Width="120" Height="36" Background="#FF475569" 
                             Click="ClearButton_Click"/>
+                    <Button x:Name="WebServerButton" Content="启动Web服务" 
+                            Width="120" Height="36" Background="#FF0EA5E9" 
+                            Click="WebServerButton_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -221,6 +224,20 @@
                         <TextBlock x:Name="ZoneText" Text="请连接设备获取心率数据" 
                                    HorizontalAlignment="Center" Margin="0,10"
                                    FontSize="14" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Web服务状态卡片 -->
+                <Border>
+                    <StackPanel Margin="10">
+                        <TextBlock Text="Web服务状态" FontWeight="Bold" 
+                                   HorizontalAlignment="Center" Margin="0,0,0,10"/>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                            <TextBlock x:Name="WebServerStatus" Text="Web服务未启动" 
+                                       FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource SecondaryText}"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

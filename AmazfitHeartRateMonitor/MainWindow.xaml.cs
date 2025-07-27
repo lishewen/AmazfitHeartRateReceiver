@@ -2,7 +2,11 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -10,11 +14,16 @@ using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using SkiaSharp;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Storage.Streams;
-using SkiaSharp;
 
 namespace AmazfitHeartRateMonitor
 {
@@ -35,8 +44,15 @@ namespace AmazfitHeartRateMonitor
         private List<int> _heartRateHistory = [];
         private readonly DispatcherTimer _updateTimer = new();
 
+        // Web服务器相关
+        private IHost? _webHost;
+        private Task? _webServerTask;
+        private CancellationTokenSource? _cancellationTokenSource;
+        private string _webServerUrl = "http://localhost:5001/";
+        private int _webServerPort = 5001;
+
         // UI数据绑定属性
-        public ObservableCollection<ObservableValue> HeartRateValues { get; set; } = [];
+        public ObservableCollection<ObservableValue> HeartRateValues { get; set; } = new ObservableCollection<ObservableValue>();
 
         public ISeries[] Series { get; set; } =
         [
@@ -344,7 +360,7 @@ namespace AmazfitHeartRateMonitor
 
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_watcher?.Status == BluetoothLEAdvertisementWatcherStatus.Started)
+            if (_watcher.Status == BluetoothLEAdvertisementWatcherStatus.Started)
             {
                 _watcher.Stop();
                 StartButton.Content = "开始扫描";
@@ -353,7 +369,7 @@ namespace AmazfitHeartRateMonitor
             }
             else
             {
-                _watcher?.Start();
+                _watcher.Start();
                 StartButton.Content = "停止扫描";
                 UpdateStatus("正在扫描设备...");
                 FooterText.Text = "正在搜索Amazfit Balance设备...";
@@ -370,6 +386,227 @@ namespace AmazfitHeartRateMonitor
             _heartRateHistory.Clear();
             UpdateHeartRate(0);
             UpdateStatistics();
+        }
+
+        private void WebServerButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_webHost != null)
+            {
+                StopWebServer();
+                WebServerButton.Content = "启动Web服务";
+                WebServerStatus.Text = "Web服务已停止";
+            }
+            else
+            {
+                StartWebServer();
+                WebServerButton.Content = "停止Web服务";
+                WebServerStatus.Text = $"Web服务运行中: {_webServerUrl}";
+            }
+        }
+
+        private void StartWebServer()
+        {
+            try
+            {
+                _cancellationTokenSource = new CancellationTokenSource();
+
+                _webHost = Host.CreateDefaultBuilder()
+                    .ConfigureWebHostDefaults(webBuilder =>
+                    {
+                        webBuilder.UseUrls(_webServerUrl);
+                        webBuilder.Configure(app =>
+                        {
+                            app.UseRouting();
+
+                            // 提供静态文件
+                            app.UseStaticFiles();
+
+                            // API端点获取实时心率
+                            app.UseEndpoints(endpoints =>
+                            {
+                                endpoints.MapGet("/api/heartrate", async context =>
+                                {
+                                    await context.Response.WriteAsJsonAsync(new
+                                    {
+                                        heartRate = _currentHeartRate,
+                                        timestamp = DateTime.Now.ToString("o")
+                                    });
+                                });
+
+                                endpoints.MapGet("/", async context =>
+                                {
+                                    // 提供自定义的心率卡片HTML
+                                    var html = GenerateHeartRateCardHtml();
+                                    context.Response.ContentType = "text/html";
+                                    await context.Response.WriteAsync(html);
+                                });
+                            });
+                        });
+                    })
+                    .Build();
+
+                _webServerTask = _webHost.StartAsync(_cancellationTokenSource.Token);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = _webServerUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"启动Web服务失败: {ex.Message}");
+            }
+        }
+
+        private void StopWebServer()
+        {
+            try
+            {
+                _cancellationTokenSource?.Cancel();
+                _webHost?.StopAsync().Wait();
+                _webHost?.Dispose();
+                _webHost = null;
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"停止Web服务失败: {ex.Message}");
+            }
+        }
+
+        private string GenerateHeartRateCardHtml()
+        {
+            return $@"
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>实时心率卡片</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }}
+        
+        .heart-rate-card {{
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }}
+        
+        .heart-rate-card::before {{
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+            animation: pulse 2s infinite;
+        }}
+        
+        @keyframes pulse {{
+            0% {{ transform: scale(0.5); opacity: 0.5; }}
+            70% {{ transform: scale(1.2); opacity: 0; }}
+            100% {{ transform: scale(1.2); opacity: 0; }}
+        }}
+        
+        .heart-icon {{
+            font-size: 64px;
+            margin-bottom: 15px;
+            animation: heartbeat 1.5s infinite;
+        }}
+        
+        @keyframes heartbeat {{
+            0% {{ transform: scale(1); }}
+            14% {{ transform: scale(1.3); }}
+            28% {{ transform: scale(1); }}
+            42% {{ transform: scale(1.3); }}
+            70% {{ transform: scale(1); }}
+        }}
+        
+        .heart-rate-value {{
+            font-size: 72px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }}
+        
+        .heart-rate-label {{
+            font-size: 24px;
+            opacity: 0.9;
+        }}
+        
+        .device-info {{
+            position: absolute;
+            bottom: 15px;
+            font-size: 14px;
+            opacity: 0.7;
+        }}
+        
+        .timestamp {{
+            position: absolute;
+            top: 15px;
+            font-size: 14px;
+            opacity: 0.7;
+        }}
+    </style>
+</head>
+<body>
+    <div class='heart-rate-card'>
+        <div class='timestamp' id='timestamp'>--</div>
+        <div class='heart-icon'>❤️</div>
+        <div class='heart-rate-value' id='heartRate'>--</div>
+        <div class='heart-rate-label'>心率 (BPM)</div>
+        <div class='device-info'>Amazfit Balance</div>
+    </div>
+    
+    <script>
+        async function updateHeartRate() {{
+            try {{
+                const response = await fetch('/api/heartrate');
+                const data = await response.json();
+                
+                document.getElementById('heartRate').textContent = data.heartRate || '--';
+                document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleTimeString();
+                
+                // 根据心率值调整动画速度
+                const heartIcon = document.querySelector('.heart-icon');
+                if (data.heartRate > 120) {{
+                    heartIcon.style.animationDuration = '0.8s';
+                }} else if (data.heartRate > 90) {{
+                    heartIcon.style.animationDuration = '1s';
+                }} else {{
+                    heartIcon.style.animationDuration = '1.5s';
+                }}
+            }} catch (error) {{
+                console.error('获取心率失败:', error);
+            }}
+        }}
+        
+        // 初始加载
+        updateHeartRate();
+        // 每2秒更新一次
+        setInterval(updateHeartRate, 2000);
+    </script>
+</body>
+</html>
+";
         }
 
         protected override void OnClosed(EventArgs e)
@@ -396,6 +633,9 @@ namespace AmazfitHeartRateMonitor
             }
 
             _updateTimer.Stop();
+
+            // 停止Web服务器
+            StopWebServer();
         }
 
         protected virtual void OnPropertyChanged(string? propertyName = null)
