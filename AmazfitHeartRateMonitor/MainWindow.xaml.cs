@@ -1,16 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Media;
-using System.Windows.Threading;
-using LiveChartsCore;
+﻿using LiveChartsCore;
 using LiveChartsCore.Defaults;
 using LiveChartsCore.SkiaSharpView;
 using LiveChartsCore.SkiaSharpView.Painting;
@@ -20,10 +8,17 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SkiaSharp;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.IO;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Threading;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Bluetooth.Advertisement;
 using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Storage.Streams;
+using Forms = System.Windows.Forms;
 
 namespace AmazfitHeartRateMonitor
 {
@@ -50,6 +45,10 @@ namespace AmazfitHeartRateMonitor
         private CancellationTokenSource? _cancellationTokenSource;
         private string _webServerUrl = "http://localhost:5001/";
         private int _webServerPort = 5001;
+
+        // 系统托盘相关
+        private NotifyIcon? _trayIcon;
+        private bool _isExiting = false;
 
         // UI数据绑定属性
         public ObservableCollection<ObservableValue> HeartRateValues { get; set; } = new ObservableCollection<ObservableValue>();
@@ -123,6 +122,113 @@ namespace AmazfitHeartRateMonitor
 
             // 初始化蓝牙监控器
             InitializeBluetoothWatcher();
+
+            // 初始化系统托盘图标
+            InitializeTrayIcon();
+        }
+
+        private void InitializeTrayIcon()
+        {
+            // 创建系统托盘图标
+            _trayIcon = new NotifyIcon();
+
+            // 设置托盘图标（使用内置资源创建图标）
+            using (var stream = System.Windows.Application.GetResourceStream(new Uri("/heart_icon.ico", UriKind.Relative))?.Stream)
+            {
+                if (stream != null)
+                {
+                    _trayIcon.Icon = new Icon(stream);
+                }
+                else
+                {
+                    // 如果没有资源，创建一个简单的心形图标
+                    _trayIcon.Icon = CreateHeartIcon();
+                }
+            }
+
+            _trayIcon.Text = "Amazfit Balance 心率监控";
+            _trayIcon.Visible = true;
+
+            // 创建右键菜单
+            var contextMenu = new ContextMenuStrip();
+
+            var showMenuItem = new ToolStripMenuItem("显示主窗体");
+            showMenuItem.Click += (s, e) => ShowMainWindow();
+            contextMenu.Items.Add(showMenuItem);
+
+            var startScanMenuItem = new ToolStripMenuItem("开始扫描");
+            startScanMenuItem.Click += (s, e) => StartButton_Click(null, null);
+            contextMenu.Items.Add(startScanMenuItem);
+
+            var webServerMenuItem = new ToolStripMenuItem("启动Web服务");
+            webServerMenuItem.Click += (s, e) => WebServerButton_Click(null, null);
+            contextMenu.Items.Add(webServerMenuItem);
+
+            contextMenu.Items.Add(new ToolStripSeparator());
+
+            var exitMenuItem = new ToolStripMenuItem("退出程序");
+            exitMenuItem.Click += (s, e) => ExitApplication();
+            contextMenu.Items.Add(exitMenuItem);
+
+            _trayIcon.ContextMenuStrip = contextMenu;
+
+            // 双击托盘图标显示主窗体
+            _trayIcon.DoubleClick += (s, e) => ShowMainWindow();
+
+            // 窗口关闭时处理
+            Closing += MainWindow_Closing;
+        }
+
+        private static Icon CreateHeartIcon()
+        {
+            // 创建一个简单的心形图标
+            using Bitmap bmp = new(16, 16);
+            using (Graphics g = Graphics.FromImage(bmp))
+            {
+                g.Clear(System.Drawing.Color.Transparent);
+                using System.Drawing.Brush brush = new SolidBrush(System.Drawing.Color.Red);
+                // 绘制一个简单的心形
+                g.FillEllipse(brush, 2, 0, 5, 5);
+                g.FillEllipse(brush, 9, 0, 5, 5);
+
+                System.Drawing.Point[] points = [
+                            new(2, 3),
+                            new(8, 12),
+                            new(14, 3),
+                            new(8, 8)
+                        ];
+
+                g.FillPolygon(brush, points);
+            }
+            return System.Drawing.Icon.FromHandle(bmp.GetHicon());
+        }
+
+        private void ShowMainWindow()
+        {
+            Show();
+            WindowState = WindowState.Normal;
+            Activate();
+        }
+
+        private void HideMainWindow()
+        {
+            Hide();
+        }
+
+        private void ExitApplication()
+        {
+            _isExiting = true;
+            Close();
+        }
+
+        private void MainWindow_Closing(object? sender, CancelEventArgs e)
+        {
+            if (!_isExiting)
+            {
+                // 取消关闭，改为隐藏
+                e.Cancel = true;
+                HideMainWindow();
+            }
         }
 
         private void InitializeBluetoothWatcher()
@@ -202,6 +308,12 @@ namespace AmazfitHeartRateMonitor
                     {
                         UpdateStatus("已连接 - 接收数据中");
                         FooterText.Text = "已连接Amazfit Balance - 实时接收心率数据";
+
+                        // 更新托盘图标提示
+                        if (_trayIcon != null)
+                        {
+                            _trayIcon.Text = $"Amazfit心率监控 - 已连接\n当前心率: {_currentHeartRate} BPM";
+                        }
                     });
                 }
                 else
@@ -223,7 +335,16 @@ namespace AmazfitHeartRateMonitor
                 int heartRate = ParseHeartRateValue(reader);
 
                 // 在UI线程上更新数据
-                Dispatcher.Invoke(() => UpdateHeartRate(heartRate));
+                Dispatcher.Invoke(() =>
+                {
+                    UpdateHeartRate(heartRate);
+
+                    // 更新托盘图标提示
+                    if (_trayIcon != null)
+                    {
+                        _trayIcon.Text = $"Amazfit心率监控 - 已连接\n当前心率: {heartRate} BPM";
+                    }
+                });
             }
             catch (Exception ex)
             {
@@ -231,7 +352,7 @@ namespace AmazfitHeartRateMonitor
             }
         }
 
-        private int ParseHeartRateValue(DataReader reader)
+        private static int ParseHeartRateValue(DataReader reader)
         {
             reader.ByteOrder = ByteOrder.LittleEndian;
 
@@ -277,37 +398,37 @@ namespace AmazfitHeartRateMonitor
             if (heartRate <= 0)
             {
                 ZoneText.Text = "请连接设备获取心率数据";
-                ZoneText.Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184));
+                ZoneText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(148, 163, 184));
                 return;
             }
 
             string zone;
-            Brush zoneColor;
+            System.Windows.Media.Brush zoneColor;
 
             if (heartRate < 60)
             {
                 zone = "休息";
-                zoneColor = Brushes.Gray;
+                zoneColor = System.Windows.Media.Brushes.Gray;
             }
             else if (heartRate < 90)
             {
                 zone = "热身";
-                zoneColor = Brushes.LightBlue;
+                zoneColor = System.Windows.Media.Brushes.LightBlue;
             }
             else if (heartRate < 120)
             {
                 zone = "燃脂";
-                zoneColor = new SolidColorBrush(Color.FromRgb(139, 92, 246)); // 紫色
+                zoneColor = new SolidColorBrush(System.Windows.Media.Color.FromRgb(139, 92, 246)); // 紫色
             }
             else if (heartRate < 150)
             {
                 zone = "有氧";
-                zoneColor = new SolidColorBrush(Color.FromRgb(236, 72, 153)); // 粉色
+                zoneColor = new SolidColorBrush(System.Windows.Media.Color.FromRgb(236, 72, 153)); // 粉色
             }
             else
             {
                 zone = "极限";
-                zoneColor = new SolidColorBrush(Color.FromRgb(244, 63, 94)); // 红色
+                zoneColor = new SolidColorBrush(System.Windows.Media.Color.FromRgb(244, 63, 94)); // 红色
             }
 
             ZoneText.Text = $"当前区间: {zone}";
@@ -319,22 +440,22 @@ namespace AmazfitHeartRateMonitor
             if (heartRate < 60)
             {
                 CurrentStatusText.Text = "过低";
-                CurrentStatusText.Foreground = new SolidColorBrush(Color.FromRgb(59, 130, 246)); // 蓝色
+                CurrentStatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(59, 130, 246)); // 蓝色
             }
             else if (heartRate > 150)
             {
                 CurrentStatusText.Text = "过高";
-                CurrentStatusText.Foreground = new SolidColorBrush(Color.FromRgb(244, 63, 94)); // 红色
+                CurrentStatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(244, 63, 94)); // 红色
             }
             else if (heartRate > 120)
             {
                 CurrentStatusText.Text = "运动";
-                CurrentStatusText.Foreground = new SolidColorBrush(Color.FromRgb(236, 72, 153)); // 粉色
+                CurrentStatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(236, 72, 153)); // 粉色
             }
             else
             {
                 CurrentStatusText.Text = "正常";
-                CurrentStatusText.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // 绿色
+                CurrentStatusText.Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(16, 185, 129)); // 绿色
             }
         }
 
@@ -357,7 +478,7 @@ namespace AmazfitHeartRateMonitor
             SignalText.Text = signal;
         }
 
-        private void StartButton_Click(object sender, RoutedEventArgs e)
+        private void StartButton_Click(object? sender, RoutedEventArgs? e)
         {
             if (_watcher?.Status == BluetoothLEAdvertisementWatcherStatus.Started)
             {
@@ -365,6 +486,9 @@ namespace AmazfitHeartRateMonitor
                 StartButton.Content = "开始扫描";
                 UpdateStatus("已停止扫描");
                 FooterText.Text = "扫描已停止";
+
+                // 更新托盘菜单
+                UpdateTrayMenu();
             }
             else
             {
@@ -372,6 +496,27 @@ namespace AmazfitHeartRateMonitor
                 StartButton.Content = "停止扫描";
                 UpdateStatus("正在扫描设备...");
                 FooterText.Text = "正在搜索Amazfit Balance设备...";
+
+                // 更新托盘菜单
+                UpdateTrayMenu();
+            }
+        }
+
+        private void UpdateTrayMenu()
+        {
+            if (_trayIcon?.ContextMenuStrip == null) return;
+
+            // 更新"开始扫描"菜单项文本
+            if (_trayIcon.ContextMenuStrip.Items[1] is ToolStripMenuItem startScanItem)
+            {
+                startScanItem.Text = _watcher?.Status == BluetoothLEAdvertisementWatcherStatus.Started ?
+                    "停止扫描" : "开始扫描";
+            }
+
+            // 更新"启动Web服务"菜单项文本
+            if (_trayIcon.ContextMenuStrip.Items[2] is ToolStripMenuItem webServerItem && _webHost != null)
+            {
+                webServerItem.Text = "停止Web服务";
             }
         }
 
@@ -387,7 +532,7 @@ namespace AmazfitHeartRateMonitor
             UpdateStatistics();
         }
 
-        private void WebServerButton_Click(object sender, RoutedEventArgs e)
+        private void WebServerButton_Click(object? sender, RoutedEventArgs? e)
         {
             if (_webHost != null)
             {
@@ -472,7 +617,7 @@ namespace AmazfitHeartRateMonitor
             }
         }
 
-        private string GenerateHeartRateCardHtml()
+        private static string GenerateHeartRateCardHtml()
         {
             return $@"
 <!DOCTYPE html>

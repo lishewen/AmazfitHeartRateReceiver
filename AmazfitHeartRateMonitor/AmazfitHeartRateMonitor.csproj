@@ -6,10 +6,12 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
+		<UseWindowsForms>true</UseWindowsForms>
 		<ApplicationIcon>Watch_256x256.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <None Remove="heart_icon.ico" />
 	  <None Remove="Watch_256x256.ico" />
 	</ItemGroup>
 
@@ -24,6 +26,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <Resource Include="heart_icon.ico" />
 	  <Resource Include="Watch_256x256.ico" />
 	</ItemGroup>
 
