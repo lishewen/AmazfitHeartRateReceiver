@@ -462,7 +462,7 @@ namespace AmazfitHeartRateMonitor
             try
             {
                 _cancellationTokenSource?.Cancel();
-                _webHost?.StopAsync().Wait();
+                _ = _webHost?.StopAsync();
                 _webHost?.Dispose();
                 _webHost = null;
             }

@@ -6,12 +6,25 @@
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
+		<ApplicationIcon>Watch_256x256.ico</ApplicationIcon>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App"/>
+	  <None Remove="Watch_256x256.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Content Include="Watch_256x256.ico" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
 		<PackageReference Include="LiveChartsCore.SkiaSharpView.WPF" Version="2.0.0-rc5.4" />
 		<PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Resource Include="Watch_256x256.ico" />
 	</ItemGroup>
 
 </Project>
